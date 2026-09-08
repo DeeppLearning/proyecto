@@ -13,6 +13,7 @@ Optimizada para alto rendimiento:
 import sys
 import io
 import json
+import numpy as np
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
@@ -1150,6 +1151,41 @@ table.clean-tbl tr:hover td { background: var(--bg-card); }
     </div>
 
     <!-- CHARTS ROW 2 -->
+    <!-- PROYECCIÓN FILTRADA -->
+    <div class="grid-2">
+      <div class="card-panel">
+        <div class="card-head">
+          <div>
+            <div class="card-heading">Proyección de Contratación Futura</div>
+            <div class="card-subtext">Histórico filtrado y estimación de los próximos tres años (MM COP)</div>
+          </div>
+          <span class="badge-highlight">Estimación</span>
+        </div>
+        <div class="chart-box"><canvas id="chartDashboardForecast"></canvas></div>
+      </div>
+      <div class="card-panel">
+        <div class="card-head">
+          <div>
+            <div class="card-heading">Valores Futuros Estimados</div>
+            <div class="card-subtext" id="dashboardForecastNote">Seleccione filtros para recalcular el escenario</div>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="clean-tbl">
+            <thead>
+              <tr>
+                <th>Año</th>
+                <th class="num-cell">Monto estimado (MM COP)</th>
+                <th class="num-cell">Variación anual</th>
+              </tr>
+            </thead>
+            <tbody id="dashboardForecastBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHARTS ROW 2 -->
     <div class="grid-3">
       <div class="card-panel">
         <div class="card-head">
@@ -1900,6 +1936,18 @@ table.clean-tbl tr:hover td { background: var(--bg-card); }
           <span class="badge-clean">Pronóstico Supervisado</span>
         </div>
         <div class="chart-box-sm"><canvas id="chartMlProyeccion"></canvas></div>
+        <div class="table-responsive" style="margin-top:12px">
+          <table class="clean-tbl">
+            <thead>
+              <tr>
+                <th>Año estimado</th>
+                <th class="num-cell">Monto proyectado (MM COP)</th>
+                <th class="num-cell">Cambio frente al año anterior</th>
+              </tr>
+            </thead>
+            <tbody id="mlForecastBody"></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card-panel">
@@ -2317,6 +2365,53 @@ async function loadDashboard() {
       },
       plugins: { legend: { display: false } }
     });
+
+    // Proyección filtrada: mantiene separado el histórico de la estimación.
+    const forecastRows = d.proyeccion || [];
+    const forecastLabels = forecastRows.map(x => x.anio);
+    renderChart('chartDashboardForecast', 'line', {
+      labels: forecastLabels,
+      datasets: [
+        {
+          label: 'Histórico real',
+          data: forecastRows.map(x => x.es_proy ? null : x.monto_mm),
+          borderColor: '#2563EB',
+          backgroundColor: 'rgba(37,99,235,0.12)',
+          borderWidth: 2.5,
+          pointRadius: 3,
+          fill: true
+        },
+        {
+          label: 'Estimación futura',
+          data: forecastRows.map(x => x.es_proy ? x.monto_mm : (x.anio === d.ultimo_anio ? x.monto_mm : null)),
+          borderColor: '#10B981',
+          borderDash: [6, 4],
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointBackgroundColor: '#10B981',
+          fill: false
+        }
+      ]
+    }, {
+      scales: {
+        y: { ticks: { color: '#6B7280', callback: v => '$' + v }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        x: { ticks: { color: '#6B7280' }, grid: { display: false } }
+      },
+      plugins: { legend: { labels: { color: '#9CA3AF', font: { size: 10 } } } }
+    });
+
+    const futureRows = forecastRows.filter(x => x.es_proy);
+    document.getElementById('dashboardForecastNote').textContent =
+      `${d.modelo_proyeccion || 'Tendencia lineal'} | Filtros activos del dashboard`;
+    document.getElementById('dashboardForecastBody').innerHTML = futureRows.length
+      ? futureRows.map(x => `
+        <tr>
+          <td><strong>${x.anio}</strong></td>
+          <td class="num-cell" style="color:var(--success); font-weight:600">$${Number(x.monto_mm).toLocaleString('es-CO', {maximumFractionDigits:2})}</td>
+          <td class="num-cell" style="color:${x.variacion_pct >= 0 ? 'var(--success)' : 'var(--warning)'}">${x.variacion_pct >= 0 ? '+' : ''}${Number(x.variacion_pct).toFixed(1)}%</td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="3" style="color:var(--text-muted)">No hay suficientes años históricos para proyectar.</td></tr>';
 
     // Gráfico subsectores
     renderChart('chartSub', 'doughnut', {
@@ -3295,6 +3390,18 @@ async function loadMlTab() {
     const realData = d.proyecciones.map(x => x.es_proy ? null : x.monto_mm);
     const proyData = d.proyecciones.map(x => x.es_proy ? x.monto_mm : (x.anio === 2025 ? x.monto_mm : null));
 
+    const mlForecastRows = d.proyecciones.filter(x => x.es_proy);
+    const mlForecastBody = document.getElementById('mlForecastBody');
+    if (mlForecastBody) {
+      mlForecastBody.innerHTML = mlForecastRows.map(x => `
+        <tr>
+          <td><strong>${x.anio}</strong></td>
+          <td class="num-cell" style="color:var(--success); font-weight:600">$${Number(x.monto_mm).toLocaleString('es-CO', {maximumFractionDigits:2})}</td>
+          <td class="num-cell">${x.variacion_pct === undefined ? '—' : `${x.variacion_pct >= 0 ? '+' : ''}${Number(x.variacion_pct).toFixed(1)}%`}</td>
+        </tr>
+      `).join('');
+    }
+
     renderChart('chartMlProyeccion', 'line', {
       labels: proyLabels,
       datasets: [
@@ -3677,6 +3784,31 @@ class Handler(BaseHTTPRequestHandler):
                     GROUP BY 1 ORDER BY 1
                 """).df().to_dict("records")
 
+                # Pronóstico de los tres años siguientes al último año histórico filtrado.
+                proyeccion = []
+                historico = [
+                  {"anio": int(float(row["anio"])), "monto_mm": float(row["monto_mm"]), "es_proy": False}
+                  for row in anual
+                  if str(row["anio"]).replace(".", "", 1).isdigit()
+                ]
+                ultimo_anio = max((row["anio"] for row in historico), default=None)
+                if len(historico) >= 2 and ultimo_anio is not None:
+                  years = np.array([row["anio"] for row in historico], dtype=float)
+                  amounts = np.array([row["monto_mm"] for row in historico], dtype=float)
+                  slope, intercept = np.polyfit(years, amounts, 1)
+                  proyeccion = historico.copy()
+                  previous_amount = historico[-1]["monto_mm"]
+                  for future_year in range(ultimo_anio + 1, ultimo_anio + 4):
+                    estimate = max(0.0, float(np.polyval([slope, intercept], future_year)))
+                    variation = ((estimate / previous_amount) - 1) * 100 if previous_amount else 0.0
+                    proyeccion.append({
+                      "anio": future_year,
+                      "monto_mm": round(estimate, 2),
+                      "variacion_pct": round(variation, 1),
+                      "es_proy": True
+                    })
+                    previous_amount = estimate
+
                 if col_sub:
                     subsectores = DB.execute(f"""
                         SELECT COALESCE({col_sub},'Sin clasificar') AS subsector,
@@ -3721,6 +3853,9 @@ class Handler(BaseHTTPRequestHandler):
                 _json(self, {
                     "kpis": kpis,
                     "anual": anual,
+                    "proyeccion": proyeccion,
+                    "ultimo_anio": ultimo_anio,
+                    "modelo_proyeccion": "Tendencia lineal sobre años históricos filtrados",
                     "subsectores": subsectores,
                     "hhi": hhi,
                     "proveedores": proveedores,
@@ -4161,7 +4296,6 @@ class Handler(BaseHTTPRequestHandler):
                 df_ml = DB.execute("SELECT * FROM v_secop_tic_ml_features").df()
                 from sklearn.cluster import KMeans
                 from sklearn.ensemble import IsolationForest
-                import numpy as np
 
                 X = df_ml[['log_valor', 'dias_adicionados', 'flag_prorroga', 'flag_innovacion_conpes']].fillna(0)
                 
@@ -4238,8 +4372,11 @@ class Handler(BaseHTTPRequestHandler):
 
                 proj_2026 = float(round(np.polyval(poly, 2026), 2))
                 proj_2027 = float(round(np.polyval(poly, 2027), 2))
-                proyecciones.append({"anio": 2026, "monto_mm": proj_2026, "es_proy": True})
-                proyecciones.append({"anio": 2027, "monto_mm": proj_2027, "es_proy": True})
+                last_amount = float(anual_hist.iloc[-1]['monto_mm']) if len(anual_hist) else 0.0
+                variation_2026 = ((proj_2026 / last_amount) - 1) * 100 if last_amount else 0.0
+                variation_2027 = ((proj_2027 / proj_2026) - 1) * 100 if proj_2026 else 0.0
+                proyecciones.append({"anio": 2026, "monto_mm": proj_2026, "variacion_pct": round(variation_2026, 1), "es_proy": True})
+                proyecciones.append({"anio": 2027, "monto_mm": proj_2027, "variacion_pct": round(variation_2027, 1), "es_proy": True})
 
                 _json(self, {
                     "clusters": clusters_summary,
