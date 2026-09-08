@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary & Checkpoints
+scratch/
+scratch_*.py
+data/checkpoints/*.json
+
+# Large Parquet datasets (>25MB) can either be tracked via Git LFS or excluded.
+# data/parquet/
